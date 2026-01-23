@@ -1,0 +1,87 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - master
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  compose-config:
+    name: Docker Compose config
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - name: Show Docker versions
+        run: |
+          docker version
+          docker compose version
+      - name: Validate docker compose config
+        run: docker compose config
+
+  api:
+    name: API install + lint + audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version-file: .node-version
+          cache: npm
+          cache-dependency-path: api/package-lock.json
+      - name: Install
+        working-directory: api
+        run: npm ci
+      - name: Lint
+        working-directory: api
+        run: npm run lint
+      - name: Vulnerability audit (prod deps)
+        working-directory: api
+        run: npm audit --omit=dev --audit-level=high
+      - name: Syntax check
+        working-directory: api
+        run: node --check src/index.js
+
+  ui:
+    name: UI lint + typecheck + build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version-file: .node-version
+          cache: npm
+          cache-dependency-path: ui/package-lock.json
+      - name: Install
+        working-directory: ui
+        run: npm ci
+      - name: Lint
+        working-directory: ui
+        run: npm run lint
+      - name: Typecheck
+        working-directory: ui
+        run: npm run typecheck
+      - name: Vulnerability audit (prod deps)
+        working-directory: ui
+        run: npm audit --omit=dev --audit-level=high
+      - name: Build
+        working-directory: ui
+        run: npm run build
+      - name: Bundle size budgets
+        working-directory: ui
+        run: npm run bundle:check
+
+  smoke:
+    name: Compose integration test (API)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version-file: .node-version
+      - name: Integration test (auth + CRUD + RBAC)
+        run: bash ./scripts/compose-integration-test

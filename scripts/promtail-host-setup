@@ -1,0 +1,106 @@
+#!/usr/bin/env bash
+# Setup promtail on the host to ship ttyd (systemd) logs to Loki
+# This enables centralized logging for the ttyd service running outside Docker
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(dirname "$SCRIPT_DIR")"
+
+echo "=== Promtail Host Setup (for ttyd logs) ==="
+
+# Check if Loki is running
+if ! curl -s http://127.0.0.1:3101/ready >/dev/null 2>&1; then
+  echo "WARNING: Loki doesn't appear to be running at http://127.0.0.1:3101"
+  echo "Start the logging stack first: docker compose -f docker-compose.yml -f docker-compose.logging.yml up -d"
+  echo ""
+fi
+
+# Create promtail config directory
+mkdir -p ~/.config/promtail
+
+# Create promtail config for host
+cat > ~/.config/promtail/config.yaml << 'EOF'
+server:
+  http_listen_port: 9081
+  grpc_listen_port: 0
+
+positions:
+  filename: /tmp/promtail-host-positions.yaml
+
+clients:
+  - url: http://127.0.0.1:3101/loki/api/v1/push
+
+scrape_configs:
+  - job_name: ttyd
+    journal:
+      json: false
+      max_age: 12h
+      labels:
+        job: ttyd
+        service: ttyd
+      path: /var/log/journal
+    relabel_configs:
+      - source_labels: ['__journal__systemd_unit']
+        regex: 'ai-ttyd-docker\.service'
+        action: keep
+    pipeline_stages:
+      - regex:
+          expression: '^(?P<timestamp>\S+\s+\S+)\s+(?P<hostname>\S+)\s+(?P<process>[^:]+):\s+(?P<message>.*)$'
+      - labels:
+          process:
+EOF
+
+echo "Promtail config written to ~/.config/promtail/config.yaml"
+
+# Check if promtail is installed
+if ! command -v promtail >/dev/null 2>&1; then
+  echo ""
+  echo "Promtail is not installed. Install it with one of:"
+  echo ""
+  echo "  # Ubuntu/Debian:"
+  echo "  sudo apt-get install -y promtail"
+  echo ""
+  echo "  # Or download from GitHub releases:"
+  echo "  curl -LO https://github.com/grafana/loki/releases/download/v3.0.0/promtail-linux-amd64.zip"
+  echo "  unzip promtail-linux-amd64.zip"
+  echo "  sudo mv promtail-linux-amd64 /usr/local/bin/promtail"
+  echo ""
+  echo "Then run this script again."
+  exit 0
+fi
+
+# Create systemd user service for promtail
+mkdir -p ~/.config/systemd/user
+cat > ~/.config/systemd/user/promtail.service << EOF
+[Unit]
+Description=Promtail Log Shipper (ttyd logs)
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=$(command -v promtail) -config.file=%h/.config/promtail/config.yaml
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=default.target
+EOF
+
+echo "Systemd service written to ~/.config/systemd/user/promtail.service"
+
+# Reload and enable
+systemctl --user daemon-reload
+systemctl --user enable promtail
+systemctl --user restart promtail
+
+echo ""
+echo "=== Setup Complete ==="
+echo ""
+echo "Promtail is now running as a user service."
+echo "  Status: systemctl --user status promtail"
+echo "  Logs:   journalctl --user -u promtail -f"
+echo ""
+echo "ttyd logs should now appear in Grafana at http://localhost:3100"
+echo "  Dashboard: Tailshell Logs"
+echo "  Query: {service=\"ttyd\"}"
+echo ""

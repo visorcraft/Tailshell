@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+cd "$(dirname "$0")/.."
+
+docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d --build
+
+echo "Dev stack up:"
+echo "- UI (nginx → Vite): http://localhost:8081/"
+echo "- Vite dev server:   http://localhost:5173/"

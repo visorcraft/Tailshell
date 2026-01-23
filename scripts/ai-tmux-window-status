@@ -1,0 +1,33 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+if [ "$#" -lt 2 ]; then
+  exit 0
+fi
+
+request_id="$1"
+window_id="$2"
+
+PAYLOAD_PREFIX="__AI_PAYLOAD__"
+session="$(tmux display-message -p '#S' 2>/dev/null || true)"
+
+target="$window_id"
+if [[ "$window_id" != @* ]]; then
+  target=":${window_id}"
+fi
+
+# Target the active pane in the given window.
+command="$(tmux display-message -p -t "$target" '#{pane_current_command}' 2>/dev/null || true)"
+in_mode="$(tmux display-message -p -t "$target" '#{?pane_in_mode,1,0}' 2>/dev/null || true)"
+dead="$(tmux display-message -p -t "$target" '#{?pane_dead,1,0}' 2>/dev/null || true)"
+
+payload_raw="$(printf 'command::%s\nin_mode::%s\ndead::%s\n' "$command" "$in_mode" "$dead")"
+payload="$(printf '%s' "$payload_raw" | base64 -w 0)"
+payload_string="${PAYLOAD_PREFIX}windowStatus::${request_id}::${payload}"
+
+if [ -n "$session" ]; then
+  tmux set-option -t "$session" -q @ai_payload "$payload_string"
+else
+  tmux set-option -gq @ai_payload "$payload_string"
+fi
+tmux refresh-client -S

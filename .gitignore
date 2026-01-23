@@ -1,0 +1,43 @@
+# Editors
+.idea/
+.vscode/
+*.iml
+
+# OS files
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# Logs
+*.log
+TASKS.md
+TODO.md
+IDEAS.md
+SCAN_REPORT.md
+
+# Node / JS tooling (if/when we add a frontend)
+node_modules/
+dist/
+build/
+coverage/
+*.tsbuildinfo
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Secrets / local env
+.env
+.env.*
+*.env
+!.env.example
+!*.env.example
+secrets/
+*.pem
+*.key
+*.pfx
+*.crt
+
+# AI assistant scratch
+.claude/
+.codex/

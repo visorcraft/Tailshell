@@ -1,0 +1,29 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+if [ "$#" -lt 2 ]; then
+  exit 0
+fi
+
+request_id="$1"
+token_encoded="$2"
+session="$(tmux display-message -p '#S' 2>/dev/null || true)"
+
+PAYLOAD_PREFIX="__AI_PAYLOAD__"
+token=$(printf %s "$token_encoded" | base64 -d)
+path=$(tmux display -p -F "#{pane_current_path}")
+matches=$(bash -lc "cd \"$path\"; compgen -f -- \"$token\"" || true)
+payload=$(printf '%s\n' "$matches" | base64 -w 0)
+
+payload_string="__AI_PAYLOAD__complete::${request_id}::${payload}"
+if [ -n "$session" ]; then
+  tmux set-option -t "$session" -q @ai_payload "$payload_string"
+else
+  tmux set-option -gq @ai_payload "$payload_string"
+fi
+tmux refresh-client -S
+
+ai_state_helper="$HOME/.local/bin/ai-tmux-state"
+if [ -x "$ai_state_helper" ]; then
+  "$ai_state_helper" || true
+fi

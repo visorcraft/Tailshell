@@ -1,0 +1,48 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+request_id="${1:-}"
+window_id="${2:-}"
+
+if [ -z "$request_id" ]; then
+  request_id="$(date +%s%N)"
+fi
+
+PAYLOAD_PREFIX="__AI_PAYLOAD__"
+session="$(tmux display-message -p '#S' 2>/dev/null || true)"
+
+target=""
+if [ -n "$window_id" ]; then
+  target="$window_id"
+  if [[ "$window_id" != @* ]]; then
+    target=":${window_id}"
+  fi
+fi
+
+history_size="$(tmux display-message -p ${target:+-t "$target"} '#{history_size}' 2>/dev/null || true)"
+history_limit="$(tmux display-message -p ${target:+-t "$target"} '#{history_limit}' 2>/dev/null || true)"
+pane_height="$(tmux display-message -p ${target:+-t "$target"} '#{pane_height}' 2>/dev/null || true)"
+in_mode="$(tmux display-message -p ${target:+-t "$target"} '#{?pane_in_mode,1,0}' 2>/dev/null || true)"
+scroll_position="$(tmux display-message -p ${target:+-t "$target"} '#{scroll_position}' 2>/dev/null || true)"
+
+payload_raw="$(printf 'history_size::%s\nhistory_limit::%s\npane_height::%s\nin_mode::%s\nscroll_position::%s\n' "${history_size:-0}" "${history_limit:-0}" "${pane_height:-0}" "${in_mode:-0}" "${scroll_position:-0}")"
+payload="$(printf '%s' "$payload_raw" | base64 -w 0)"
+payload_string="${PAYLOAD_PREFIX}scroll::${request_id}::${payload}"
+
+if [ -n "$session" ]; then
+  tmux set-option -t "$session" -q @ai_payload "$payload_string"
+else
+  tmux set-option -gq @ai_payload "$payload_string"
+fi
+
+# `run-shell` commands triggered by hooks may not have a "current client", which can
+# make `refresh-client` fail and spam the terminal with "returned 2".
+clients="$(tmux list-clients -F '#{client_name}' 2>/dev/null || true)"
+if [ -n "$clients" ]; then
+  while IFS= read -r client; do
+    [ -n "$client" ] || continue
+    tmux refresh-client -S -t "$client" 2>/dev/null || true
+  done <<<"$clients"
+else
+  tmux refresh-client -S 2>/dev/null || true
+fi

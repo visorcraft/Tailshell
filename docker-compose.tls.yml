@@ -1,0 +1,9 @@
+services:
+  nginx:
+    ports:
+      - "127.0.0.1:8081:80"
+      - "127.0.0.1:8443:443"
+    volumes:
+      - ./nginx/nginx.http2.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/certs:/etc/nginx/certs:ro
+

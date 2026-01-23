@@ -1,0 +1,29 @@
+[Unit]
+Description=AI Web Terminal for Docker Stack
+After=network.target ssh-agent.service
+Wants=ssh-agent.service
+
+[Service]
+Type=simple
+WorkingDirectory=%h
+Environment=SSH_AUTH_SOCK=%t/ssh-agent.socket
+ExecStart=%h/.local/bin/ai-ttyd-docker
+Restart=always
+RestartSec=2
+
+# Hardening options
+PrivateTmp=true
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=no
+ReadWritePaths=%h/.local %h/.config %h/.ssh %t
+ProtectControlGroups=true
+ProtectKernelModules=true
+ProtectKernelTunables=true
+
+# Resource limits
+MemoryMax=512M
+TasksMax=100
+
+[Install]
+WantedBy=default.target

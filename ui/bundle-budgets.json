@@ -1,0 +1,7 @@
+{
+  "gzip": {
+    "jsTotalMaxBytes": 250000,
+    "jsMaxChunkMaxBytes": 180000,
+    "cssTotalMaxBytes": 15000
+  }
+}

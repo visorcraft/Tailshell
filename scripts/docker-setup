@@ -1,0 +1,97 @@
+#!/usr/bin/env bash
+# Setup script for Docker stack mode
+# Installs ttyd service and removes old Basic Auth services
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(dirname "$SCRIPT_DIR")"
+
+echo "=== Docker Stack Setup ==="
+
+# 1. Install the ttyd wrapper
+echo "Installing ai-ttyd-docker wrapper..."
+mkdir -p ~/.local/bin
+cp "$SCRIPT_DIR/ai-ttyd-docker" ~/.local/bin/ai-ttyd-docker
+chmod +x ~/.local/bin/ai-ttyd-docker
+
+# 1b. Install the tmux entrypoint used by ttyd
+echo "Installing ai-session..."
+if [ -f ~/.local/bin/ai-session ] && ! cmp -s "$SCRIPT_DIR/ai-session" ~/.local/bin/ai-session; then
+  backup="$HOME/.local/bin/ai-session.bak.$(date +%s)"
+  echo "Backing up existing ai-session to: $backup"
+  cp ~/.local/bin/ai-session "$backup"
+fi
+cp "$SCRIPT_DIR/ai-session" ~/.local/bin/ai-session
+chmod +x ~/.local/bin/ai-session
+
+# 2. Remove old Basic Auth wrappers if they exist
+echo "Removing old Basic Auth wrappers..."
+rm -f ~/.local/bin/ai-ttyd-interactive
+rm -f ~/.local/bin/ai-ttyd-readonly
+
+# 3. Install the user systemd service (no sudo required for management)
+echo "Installing user systemd service..."
+mkdir -p ~/.config/systemd/user
+cp "$SCRIPT_DIR/ai-ttyd-docker.user.service" ~/.config/systemd/user/ai-ttyd-docker.service
+systemctl --user daemon-reload
+
+# 4. Clean up old system-level services if they exist
+echo "Cleaning up old system services (requires sudo)..."
+if systemctl is-active --quiet ai-ttyd-docker@"$USER" 2>/dev/null; then
+  sudo systemctl stop ai-ttyd-docker@"$USER" 2>/dev/null || true
+  sudo systemctl disable ai-ttyd-docker@"$USER" 2>/dev/null || true
+fi
+sudo systemctl stop ai-ttyd-interactive@"$USER" 2>/dev/null || true
+sudo systemctl stop ai-ttyd-readonly@"$USER" 2>/dev/null || true
+sudo systemctl disable ai-ttyd-interactive@"$USER" 2>/dev/null || true
+sudo systemctl disable ai-ttyd-readonly@"$USER" 2>/dev/null || true
+sudo rm -f /etc/systemd/system/ai-ttyd-docker@.service
+sudo rm -f /etc/systemd/system/ai-ttyd-interactive@.service
+sudo rm -f /etc/systemd/system/ai-ttyd-readonly@.service
+sudo systemctl daemon-reload
+
+# Kill any remaining Basic Auth ttyd processes
+pkill -9 -f "ttyd.*-c" 2>/dev/null || true
+
+# 5. Enable lingering so service runs after logout
+echo "Enabling user lingering..."
+sudo loginctl enable-linger "$USER"
+
+# 6. Enable and start the user service
+echo "Starting ttyd service..."
+systemctl --user enable ai-ttyd-docker
+systemctl --user restart ai-ttyd-docker
+
+# 7. Verify
+echo ""
+echo "=== Service Status ==="
+systemctl --user status ai-ttyd-docker --no-pager || true
+
+echo ""
+echo "=== Verifying ttyd is running without Basic Auth ==="
+sleep 1
+if ps aux | grep ttyd | grep -v grep | grep -q "\-c "; then
+  echo "WARNING: Basic Auth ttyd process still running!"
+  echo "Run: pkill -9 -f 'ttyd.*-c'"
+else
+  echo "OK: ttyd running without Basic Auth"
+fi
+
+echo ""
+echo "=== Setup Complete ==="
+echo ""
+echo "The ttyd service now runs as a user service (no sudo needed for restarts)."
+echo "  Restart: systemctl --user restart ai-ttyd-docker"
+echo "  Status:  systemctl --user status ai-ttyd-docker"
+echo "  Logs:    journalctl --user -u ai-ttyd-docker -f"
+echo ""
+echo "Optional (recommended): enable a watchdog timer that restarts ttyd if unhealthy:"
+echo "  bash ./scripts/ttyd-watchdog-setup"
+echo ""
+echo "Next steps:"
+echo "  1. Start Docker stack: docker compose up -d"
+echo "  2. Update Tailscale Serve to point to port 8081 (nginx)"
+echo "     PowerShell: tailscale serve reset && tailscale serve --bg --yes 8081"
+echo "  3. Access via: http://localhost:8081/ or your Tailscale URL"
+echo "  4. Login with the bootstrap admin (set TAILSHELL_ADMIN_PASSWORD in .env or check api logs)"
+echo ""

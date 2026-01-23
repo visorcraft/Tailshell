@@ -1,0 +1,77 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+AI_SESSION_SRC="$ROOT_DIR/scripts/ai-session"
+AI_SESSION_DEST="$HOME/.local/bin/ai-session"
+TMUX_STATE_SRC="$ROOT_DIR/scripts/ai-tmux-state"
+TMUX_STATE_DEST="$HOME/.local/bin/ai-tmux-state"
+TMUX_COMPLETE_SRC="$ROOT_DIR/scripts/ai-tmux-complete"
+TMUX_COMPLETE_DEST="$HOME/.local/bin/ai-tmux-complete"
+TMUX_STATUS_SRC="$ROOT_DIR/scripts/ai-tmux-window-status"
+TMUX_STATUS_DEST="$HOME/.local/bin/ai-tmux-window-status"
+TMUX_SCROLL_SRC="$ROOT_DIR/scripts/ai-tmux-scroll"
+TMUX_SCROLL_DEST="$HOME/.local/bin/ai-tmux-scroll"
+
+if [ -f "$AI_SESSION_SRC" ]; then
+  mkdir -p "$HOME/.local/bin"
+  cp -f "$AI_SESSION_SRC" "$AI_SESSION_DEST"
+  chmod +x "$AI_SESSION_DEST"
+fi
+
+if [ -f "$TMUX_STATE_SRC" ]; then
+  mkdir -p "$HOME/.local/bin"
+  cp -f "$TMUX_STATE_SRC" "$TMUX_STATE_DEST"
+  chmod +x "$TMUX_STATE_DEST"
+fi
+
+if [ -f "$TMUX_COMPLETE_SRC" ]; then
+  mkdir -p "$HOME/.local/bin"
+  cp -f "$TMUX_COMPLETE_SRC" "$TMUX_COMPLETE_DEST"
+  chmod +x "$TMUX_COMPLETE_DEST"
+fi
+
+if [ -f "$TMUX_STATUS_SRC" ]; then
+  mkdir -p "$HOME/.local/bin"
+  cp -f "$TMUX_STATUS_SRC" "$TMUX_STATUS_DEST"
+  chmod +x "$TMUX_STATUS_DEST"
+fi
+
+if [ -f "$TMUX_SCROLL_SRC" ]; then
+  mkdir -p "$HOME/.local/bin"
+  cp -f "$TMUX_SCROLL_SRC" "$TMUX_SCROLL_DEST"
+  chmod +x "$TMUX_SCROLL_DEST"
+fi
+
+if command -v tmux >/dev/null 2>&1; then
+  if tmux list-sessions >/dev/null 2>&1; then
+    tmux set-option -gq set-titles on || true
+    tmux set-option -gq set-titles-string "#{?@ai_payload,#{@ai_payload},#S:#I.#P #W}" || true
+    if [ -x "$TMUX_STATE_DEST" ]; then
+      tmux set-hook -g after-new-window "run-shell -b '$TMUX_STATE_DEST'" || true
+      tmux set-hook -g after-rename-window "run-shell -b '$TMUX_STATE_DEST'" || true
+      tmux set-hook -g after-swap-window "run-shell -b '$TMUX_STATE_DEST'" || true
+      tmux set-hook -g after-move-window "run-shell -b '$TMUX_STATE_DEST'" || true
+      tmux set-hook -g after-kill-window "run-shell -b '$TMUX_STATE_DEST'" || true
+      tmux set-hook -g after-kill-pane "run-shell -b '$TMUX_STATE_DEST'" || true
+      tmux set-hook -g session-window-changed "run-shell -b '$TMUX_STATE_DEST'" || true
+      tmux set-hook -g after-select-window "run-shell -b '$TMUX_STATE_DEST'" || true
+      tmux set-hook -g client-session-changed "run-shell -b '$TMUX_STATE_DEST'" || true
+      tmux set-hook -g window-linked "run-shell -b '$TMUX_STATE_DEST'" || true
+      tmux set-hook -g window-unlinked "run-shell -b '$TMUX_STATE_DEST'" || true
+      tmux set-hook -g client-attached "run-shell -b '$TMUX_STATE_DEST'" || true
+      "$TMUX_STATE_DEST" || true
+    fi
+  fi
+fi
+
+if command -v systemctl >/dev/null 2>&1; then
+  systemctl --user restart ai-ttyd-docker
+  echo "Restarted ttyd service."
+else
+  echo "systemctl not found; restart ttyd service manually if needed."
+fi
+
+echo ""
+echo "UI is served by the nginx container."
+echo "Rebuild/redeploy UI with: docker compose up -d --build nginx"

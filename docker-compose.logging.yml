@@ -1,0 +1,79 @@
+# Logging stack (Loki + Grafana + Promtail)
+# Usage: docker compose -f docker-compose.yml -f docker-compose.logging.yml up -d
+#
+# Access Grafana at http://localhost:3100 (admin/admin)
+# Pre-configured data source and dashboards for Tailshell logs
+#
+# To include ttyd (host systemd) logs, run promtail on the host:
+#   See scripts/promtail-host-setup for installation
+
+services:
+  loki:
+    image: grafana/loki:3.0.0
+    container_name: tailshell-loki
+    restart: unless-stopped
+    mem_limit: 512m
+    cpus: '1.0'
+    command: -config.file=/etc/loki/local-config.yaml
+    volumes:
+      - ./logging/loki-config.yaml:/etc/loki/local-config.yaml:ro
+      - loki_data:/loki
+    ports:
+      - '127.0.0.1:3101:3100'
+    networks:
+      - tailshell-net
+    logging:
+      driver: json-file
+      options:
+        max-size: '5m'
+        max-file: '2'
+
+  promtail:
+    image: grafana/promtail:3.0.0
+    container_name: tailshell-promtail
+    restart: unless-stopped
+    mem_limit: 256m
+    cpus: '0.5'
+    command: -config.file=/etc/promtail/config.yaml
+    volumes:
+      - ./logging/promtail-config.yaml:/etc/promtail/config.yaml:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - /var/lib/docker/containers:/var/lib/docker/containers:ro
+    depends_on:
+      - loki
+    networks:
+      - tailshell-net
+    logging:
+      driver: json-file
+      options:
+        max-size: '5m'
+        max-file: '2'
+
+  grafana:
+    image: grafana/grafana:11.0.0
+    container_name: tailshell-grafana
+    restart: unless-stopped
+    mem_limit: 512m
+    cpus: '1.0'
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-admin}
+      GF_USERS_ALLOW_SIGN_UP: 'false'
+      GF_AUTH_ANONYMOUS_ENABLED: 'false'
+    volumes:
+      - ./logging/grafana/provisioning:/etc/grafana/provisioning:ro
+      - grafana_data:/var/lib/grafana
+    ports:
+      - '127.0.0.1:3100:3000'
+    depends_on:
+      - loki
+    networks:
+      - tailshell-net
+    logging:
+      driver: json-file
+      options:
+        max-size: '5m'
+        max-file: '2'
+
+volumes:
+  loki_data:
+  grafana_data:

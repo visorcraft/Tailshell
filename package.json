@@ -1,0 +1,22 @@
+{
+  "name": "Tailshell",
+  "license": "GPL-3.0-only",
+  "private": true,
+  "scripts": {
+    "prepare": "husky",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "lint": "npm --prefix api run lint && npm --prefix ui run lint",
+    "lint:fix": "npm --prefix api run lint:fix && npm --prefix ui run lint:fix"
+  },
+  "devDependencies": {
+    "husky": "9.1.7",
+    "lint-staged": "16.2.7",
+    "prettier": "3.8.1"
+  },
+  "lint-staged": {
+    "*.{js,cjs,mjs,jsx,ts,tsx,json,css,md,yml,yaml}": [
+      "prettier --write"
+    ]
+  }
+}

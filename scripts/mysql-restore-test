@@ -1,0 +1,46 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+cd "$ROOT_DIR"
+
+if [[ $# -lt 1 ]]; then
+  echo "Usage: bash ./scripts/mysql-restore-test <backup.sql|backup.sql.gz>" >&2
+  exit 1
+fi
+
+BACKUP_FILE="$1"
+if [[ ! -f "$BACKUP_FILE" ]]; then
+  echo "Backup file not found: $BACKUP_FILE" >&2
+  exit 1
+fi
+
+STAMP="$(date +%Y%m%d-%H%M%S)"
+TEST_DB="Tailshell_restore_test_${STAMP}"
+
+cleanup() {
+  docker compose exec -T mysql sh -lc "mysql -uroot -p\"\$MYSQL_ROOT_PASSWORD\" -e \"DROP DATABASE IF EXISTS \\\`$TEST_DB\\\`;\"" >/dev/null 2>&1 || true
+}
+trap cleanup EXIT
+
+echo "Creating test database: ${TEST_DB}"
+docker compose exec -T mysql sh -lc "mysql -uroot -p\"\$MYSQL_ROOT_PASSWORD\" -e \"CREATE DATABASE \\\`$TEST_DB\\\` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;\""
+
+echo "Restoring into ${TEST_DB} from ${BACKUP_FILE}"
+if [[ "$BACKUP_FILE" == *.gz ]]; then
+  gunzip -c "$BACKUP_FILE" | docker compose exec -T mysql sh -lc "mysql -uroot -p\"\$MYSQL_ROOT_PASSWORD\" \"$TEST_DB\""
+else
+  cat "$BACKUP_FILE" | docker compose exec -T mysql sh -lc "mysql -uroot -p\"\$MYSQL_ROOT_PASSWORD\" \"$TEST_DB\""
+fi
+
+TABLE_COUNT="$(docker compose exec -T mysql sh -lc "mysql -uroot -p\"\$MYSQL_ROOT_PASSWORD\" -N -e \"SELECT COUNT(*) FROM information_schema.tables WHERE table_schema='${TEST_DB}';\"")"
+TABLE_COUNT="$(echo "$TABLE_COUNT" | tr -d '\r' | tail -n 1)"
+
+echo "Restored tables: ${TABLE_COUNT}"
+if [[ "$TABLE_COUNT" == "0" ]]; then
+  echo "Restore test failed: no tables restored" >&2
+  exit 1
+fi
+
+echo "Restore test ok (dropping ${TEST_DB})"
+

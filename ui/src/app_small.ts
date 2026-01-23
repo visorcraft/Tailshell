@@ -1,0 +1,2 @@
+export const appSmall = true;
+

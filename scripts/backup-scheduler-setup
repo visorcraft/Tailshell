@@ -1,0 +1,68 @@
+#!/usr/bin/env bash
+# Setup scheduled backups using systemd user timers
+# Runs daily at 2:00 AM and keeps 7 days of local backups
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(dirname "$SCRIPT_DIR")"
+
+echo "=== Backup Scheduler Setup ==="
+
+# Create systemd user directories
+mkdir -p ~/.config/systemd/user
+
+# Create the backup service
+cat > ~/.config/systemd/user/tailshell-backup.service << EOF
+[Unit]
+Description=Tailshell MySQL Backup
+After=network.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=${REPO_ROOT}
+ExecStart=${SCRIPT_DIR}/mysql-backup
+ExecStartPost=${SCRIPT_DIR}/backup-cleanup
+StandardOutput=journal
+StandardError=journal
+EOF
+
+# Create the timer (daily at 2:00 AM)
+cat > ~/.config/systemd/user/tailshell-backup.timer << EOF
+[Unit]
+Description=Tailshell MySQL Backup Timer
+Persistent=true
+
+[Timer]
+OnCalendar=*-*-* 02:00:00
+RandomizedDelaySec=300
+
+[Install]
+WantedBy=timers.target
+EOF
+
+echo "Systemd timer created at ~/.config/systemd/user/tailshell-backup.timer"
+
+# Reload and enable
+systemctl --user daemon-reload
+systemctl --user enable tailshell-backup.timer
+systemctl --user start tailshell-backup.timer
+
+echo ""
+echo "=== Backup Scheduler Active ==="
+echo ""
+echo "Timer status:"
+systemctl --user status tailshell-backup.timer --no-pager || true
+echo ""
+echo "Next scheduled backup:"
+systemctl --user list-timers tailshell-backup.timer --no-pager || true
+echo ""
+echo "Commands:"
+echo "  Run backup now:  systemctl --user start tailshell-backup.service"
+echo "  Check logs:      journalctl --user -u tailshell-backup -f"
+echo "  Disable:         systemctl --user disable tailshell-backup.timer"
+echo ""
+echo "Backups are stored in: ${REPO_ROOT}/backups/"
+echo "Old backups (>7 days) are automatically cleaned up."
+echo ""
+echo "For offsite storage, see: docs/BACKUP-OFFSITE.md"
+echo ""

@@ -1,0 +1,61 @@
+#!/usr/bin/env bash
+# Backup drill - automated restore test
+# Tests that the most recent backup can be successfully restored
+set -euo pipefail
+
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+BACKUP_DIR="${ROOT_DIR}/backups"
+RESTORE_TEST="${ROOT_DIR}/scripts/mysql-restore-test"
+
+echo "=== Tailshell Backup Drill ==="
+echo "Date: $(date -Iseconds)"
+echo ""
+
+# Find the most recent backup
+LATEST_BACKUP=$(find "$BACKUP_DIR" -name "tailshell-*.sql.gz" -type f -printf '%T@ %p\n' 2>/dev/null | sort -rn | head -1 | cut -d' ' -f2-)
+
+if [ -z "$LATEST_BACKUP" ]; then
+  echo "ERROR: No backup files found in $BACKUP_DIR" >&2
+  exit 1
+fi
+
+BACKUP_AGE_HOURS=$(( ($(date +%s) - $(stat -c %Y "$LATEST_BACKUP")) / 3600 ))
+BACKUP_SIZE=$(du -h "$LATEST_BACKUP" | cut -f1)
+
+echo "Latest backup: $LATEST_BACKUP"
+echo "Backup size: $BACKUP_SIZE"
+echo "Backup age: ${BACKUP_AGE_HOURS} hours"
+echo ""
+
+# Check if backup is too old
+if [ "$BACKUP_AGE_HOURS" -gt 48 ]; then
+  echo "WARNING: Latest backup is more than 48 hours old!" >&2
+fi
+
+# Run the restore test
+echo "Starting restore test..."
+echo ""
+
+if "$RESTORE_TEST" "$LATEST_BACKUP"; then
+  echo ""
+  echo "=== Drill PASSED ==="
+  echo "Backup successfully restored and verified."
+  echo ""
+
+  # Log success
+  DRILL_LOG="${ROOT_DIR}/backups/drill.log"
+  echo "$(date -Iseconds) PASS $LATEST_BACKUP" >> "$DRILL_LOG"
+
+  exit 0
+else
+  echo ""
+  echo "=== Drill FAILED ===" >&2
+  echo "Backup restore test failed!" >&2
+  echo ""
+
+  # Log failure
+  DRILL_LOG="${ROOT_DIR}/backups/drill.log"
+  echo "$(date -Iseconds) FAIL $LATEST_BACKUP" >> "$DRILL_LOG"
+
+  exit 1
+fi

@@ -1,0 +1,50 @@
+#!/usr/bin/env bash
+# ttyd wrapper for Docker stack mode (no Basic Auth - nginx handles authentication)
+set -euo pipefail
+
+ENV_FILE="${TTYD_ENV_FILE:-$HOME/.config/ai-webterm/ttyd.env}"
+if [ -f "$ENV_FILE" ]; then
+  # shellcheck source=/dev/null
+  source "$ENV_FILE"
+else
+  echo "WARN: ttyd env not found at $ENV_FILE (using defaults)" >&2
+fi
+
+TTYD_BIND="${TTYD_BIND:-0.0.0.0}"
+TTYD_PORT_INTERACTIVE="${TTYD_PORT_INTERACTIVE:-7681}"
+
+if ! command -v ttyd >/dev/null 2>&1; then
+  echo "ERROR: ttyd not found in PATH (install ttyd)" >&2
+  exit 1
+fi
+
+if [ "$(id -u)" -eq 0 ] && [ "${TAILSHELL_ALLOW_ROOT_TTYD:-}" != "true" ]; then
+  echo "ERROR: Refusing to run ttyd as root. Use a non-root user or set TAILSHELL_ALLOW_ROOT_TTYD=true." >&2
+  exit 1
+fi
+
+if [ -z "${TTYD_BIND}" ]; then
+  echo "ERROR: TTYD_BIND is empty (set in $ENV_FILE)" >&2
+  exit 1
+fi
+
+if ! [[ "$TTYD_PORT_INTERACTIVE" =~ ^[0-9]+$ ]] || [ "$TTYD_PORT_INTERACTIVE" -lt 1 ] || [ "$TTYD_PORT_INTERACTIVE" -gt 65535 ]; then
+  echo "ERROR: invalid TTYD_PORT_INTERACTIVE=$TTYD_PORT_INTERACTIVE (set in $ENV_FILE)" >&2
+  exit 1
+fi
+
+if [ ! -x "$HOME/.local/bin/ai-session" ]; then
+  echo "ERROR: ai-session not found/executable at $HOME/.local/bin/ai-session (run ./scripts/docker-setup)" >&2
+  exit 1
+fi
+
+# Run ttyd WITHOUT -c (no Basic Auth) since nginx handles JWT auth.
+# The web UI is served by nginx; ttyd is used only for /ws + /token.
+exec ttyd \
+  -i "$TTYD_BIND" \
+  -p "$TTYD_PORT_INTERACTIVE" \
+  -O \
+  -a \
+  -W \
+  -- \
+  ~/.local/bin/ai-session

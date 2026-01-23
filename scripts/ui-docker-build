@@ -1,0 +1,16 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Rebuild and deploy the UI via Docker (nginx container)
+# Uses timestamp-based cache busting to ensure fresh UI build
+
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+cd "$ROOT_DIR"
+
+export UI_CACHEBUST="$(date +%s)"
+echo "Building nginx with UI_CACHEBUST=$UI_CACHEBUST"
+
+docker compose build nginx
+docker compose up -d nginx
+
+echo "UI rebuilt and deployed."

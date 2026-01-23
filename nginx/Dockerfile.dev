@@ -1,0 +1,18 @@
+FROM nginx:1.29.4-alpine
+
+COPY nginx/nginx.dev.conf /etc/nginx/nginx.conf
+
+# Auth pages + shared assets
+COPY nginx/login.html /usr/share/nginx/html/login.html
+COPY nginx/login.js /usr/share/nginx/html/login.js
+COPY nginx/login.css /usr/share/nginx/html/login.css
+COPY nginx/change-password.html /usr/share/nginx/html/change-password.html
+COPY nginx/change-password.js /usr/share/nginx/html/change-password.js
+COPY nginx/change-password.css /usr/share/nginx/html/change-password.css
+COPY nginx/invite.html /usr/share/nginx/html/invite.html
+COPY nginx/invite.js /usr/share/nginx/html/invite.js
+COPY nginx/invite.css /usr/share/nginx/html/invite.css
+COPY nginx/reset-password.html /usr/share/nginx/html/reset-password.html
+COPY nginx/reset-password.js /usr/share/nginx/html/reset-password.js
+COPY nginx/reset-password.css /usr/share/nginx/html/reset-password.css
+COPY nginx/favicon.svg /usr/share/nginx/html/favicon.svg

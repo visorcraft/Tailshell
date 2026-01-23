@@ -1,0 +1,152 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# tmux entrypoint used by ttyd.
+#
+# Per-user isolation:
+# - ttyd is started with `--url-arg`
+# - nginx proxies ttyd endpoints with a fixed `?arg=<user_id>:<session_id>` query param
+# - ttyd passes that `arg` value to this script as $1
+#
+# Backwards-compatible behavior:
+# - If no arg is provided, fall back to the legacy shared session name: "ai"
+
+session_key="${1:-}"
+session="ai"
+tmux_socket="ai"
+
+if [ -n "$session_key" ]; then
+  user_part="${session_key%%:*}"
+  session_part="${session_key#*:}"
+  if [ "$session_part" = "$session_key" ]; then
+    session_part=""
+  fi
+
+  user_sanitized="$(printf %s "$user_part" | tr -cd '[:alnum:]_-')"
+  session_sanitized="$(printf %s "$session_part" | tr -cd '[:alnum:]_-')"
+
+  if [ -z "$user_sanitized" ]; then
+    user_sanitized="unknown"
+  fi
+
+  session="ai-${user_sanitized}"
+  if [ -n "$session_sanitized" ]; then
+    tmux_socket="ai-${session_sanitized}"
+  else
+    tmux_socket="ai-${user_sanitized}"
+  fi
+fi
+
+tmux_cmd() {
+  tmux -L "$tmux_socket" "$@"
+}
+
+# Ensure the session exists so we can safely configure tmux options on a fresh start.
+if ! tmux_cmd has-session -t "$session" 2>/dev/null; then
+  tmux_cmd new-session -d -s "$session" -n shell
+fi
+
+# Configure tmux settings (these apply globally, ok to run each time)
+# Disable tmux mouse mode so xterm selection works without modifiers.
+tmux_cmd set -g mouse off 2>/dev/null || true
+# Force a consistent prefix for UI-driven tmux commands/scrolling. Users may have
+# a different prefix in ~/.tmux.conf (commonly C-a), but the web UI assumes C-b.
+tmux_cmd set -g prefix C-b 2>/dev/null || true
+tmux_cmd set -g status-position top 2>/dev/null || true
+tmux_cmd set -g history-limit 50000 2>/dev/null || true
+# tmux enters the terminal alternate screen by default, which disables xterm.js scrollback.
+# Force tmux to stay in the normal screen buffer so the web terminal can scroll normally.
+tmux_cmd set -g alternate-screen off 2>/dev/null || true
+
+# Extra safety: also remove smcup/rmcup capabilities so tmux can't emit alt-screen sequences.
+tmux_overrides="$(tmux_cmd show -gqv terminal-overrides 2>/dev/null || true)"
+if [[ "$tmux_overrides" != *"xterm"*smcup@* ]]; then
+  tmux_cmd set -ga terminal-overrides ',xterm*:smcup@:rmcup@' 2>/dev/null || true
+fi
+tmux_cmd set-option -gq set-titles on 2>/dev/null || true
+tmux_cmd set-option -gq set-titles-string "#{?@ai_payload,#{@ai_payload},#S:#I.#P #W}" 2>/dev/null || true
+
+# Set up hooks for UI sync
+ai_tmux_helper="$HOME/.local/bin/ai-tmux-state"
+if [ -x "$ai_tmux_helper" ]; then
+  tmux_cmd set-hook -g after-new-window "run-shell -b '$ai_tmux_helper'" 2>/dev/null || true
+  tmux_cmd set-hook -g after-rename-window "run-shell -b '$ai_tmux_helper'" 2>/dev/null || true
+  tmux_cmd set-hook -g after-kill-pane "run-shell -b '$ai_tmux_helper'" 2>/dev/null || true
+  tmux_cmd set-hook -g session-window-changed "run-shell -b '$ai_tmux_helper'" 2>/dev/null || true
+  tmux_cmd set-hook -g after-select-window "run-shell -b '$ai_tmux_helper'" 2>/dev/null || true
+  tmux_cmd set-hook -g client-session-changed "run-shell -b '$ai_tmux_helper'" 2>/dev/null || true
+  tmux_cmd set-hook -g window-linked "run-shell -b '$ai_tmux_helper'" 2>/dev/null || true
+  tmux_cmd set-hook -g window-unlinked "run-shell -b '$ai_tmux_helper'" 2>/dev/null || true
+  tmux_cmd set-hook -g client-attached "run-shell -b '$ai_tmux_helper'" 2>/dev/null || true
+fi
+
+# tmux scroll integration:
+# - keep tmux mouse OFF so browser selection works normally
+# - provide scrollback via tmux copy-mode, driven by UI wheel events (see UI code)
+ai_tmux_scroll="$HOME/.local/bin/ai-tmux-scroll"
+ai_tmux_scroll_tail=""
+if [ -x "$ai_tmux_scroll" ]; then
+  # Keep UI scroll state fresh when switching tabs/workspaces or entering/leaving copy mode.
+  tmux_cmd set-hook -g pane-mode-changed "run-shell -b '$ai_tmux_scroll'" 2>/dev/null || true
+  tmux_cmd set-hook -g session-window-changed "run-shell -b '$ai_tmux_scroll'" 2>/dev/null || true
+  tmux_cmd set-hook -g after-select-window "run-shell -b '$ai_tmux_scroll'" 2>/dev/null || true
+  tmux_cmd set-hook -g client-attached "run-shell -b '$ai_tmux_scroll'" 2>/dev/null || true
+
+  # Append scroll-state refresh to key bindings (keeps the UI blue scrollbar in sync).
+  ai_tmux_scroll_tail=" ; run-shell -b '$ai_tmux_scroll'"
+
+  "$ai_tmux_scroll" >/dev/null 2>&1 || true
+fi
+
+# Always override these keys so the UI can safely send them.
+# This prevents the default tmux `prefix+d` detach-client behavior if scrolling ever falls back.
+tmux_cmd unbind-key -T prefix u 2>/dev/null || true
+tmux_cmd unbind-key -T prefix d 2>/dev/null || true
+tmux_cmd unbind-key -n F7 2>/dev/null || true
+tmux_cmd unbind-key -n F8 2>/dev/null || true
+tmux_cmd unbind-key -n PageUp 2>/dev/null || true
+tmux_cmd unbind-key -n PageDown 2>/dev/null || true
+tmux_cmd unbind-key -n "\e[5~" 2>/dev/null || true
+tmux_cmd unbind-key -n "\e[6~" 2>/dev/null || true
+
+# Provide a dedicated copy-mode cancel key (Ctrl+]) so the UI can exit copy-mode without ESC timing issues.
+tmux_cmd bind-key -T copy-mode C-] send-keys -X cancel 2>/dev/null || true
+tmux_cmd bind-key -T copy-mode-vi C-] send-keys -X cancel 2>/dev/null || true
+
+# Prefix+u: scroll up (enters copy-mode if needed).
+tmux_cmd bind-key -T prefix u if-shell -F "#{pane_in_mode}" \
+  "send-keys -X -N 5 scroll-up${ai_tmux_scroll_tail}" \
+  "copy-mode ; send-keys -X -N 5 scroll-up${ai_tmux_scroll_tail}" 2>/dev/null || true
+
+# Prefix+d: scroll down; cancels copy-mode when back at the bottom.
+tmux_cmd bind-key -T prefix d if-shell -F "#{pane_in_mode}" \
+  "if-shell -F '#{==:#{scroll_position},0}' 'send-keys -X cancel' 'send-keys -X -N 5 scroll-down'${ai_tmux_scroll_tail}" \
+  "" 2>/dev/null || true
+
+# Bind non-prefix keys for UI wheel scrolling to avoid prefix mismatches.
+tmux_cmd bind-key -n F7 if-shell -F "#{pane_in_mode}" \
+  "send-keys -X -N 5 scroll-up${ai_tmux_scroll_tail}" \
+  "copy-mode ; send-keys -X -N 5 scroll-up${ai_tmux_scroll_tail}" 2>/dev/null || true
+
+tmux_cmd bind-key -n F8 if-shell -F "#{pane_in_mode}" \
+  "if-shell -F '#{==:#{scroll_position},0}' 'send-keys -X cancel' 'send-keys -X -N 5 scroll-down'${ai_tmux_scroll_tail}" \
+  "" 2>/dev/null || true
+
+# Also bind PageUp/PageDown and their raw CSI sequences (more reliable across terminfo).
+tmux_cmd bind-key -n PageUp if-shell -F "#{pane_in_mode}" \
+  "send-keys -X -N 5 scroll-up${ai_tmux_scroll_tail}" \
+  "copy-mode ; send-keys -X -N 5 scroll-up${ai_tmux_scroll_tail}" 2>/dev/null || true
+
+tmux_cmd bind-key -n PageDown if-shell -F "#{pane_in_mode}" \
+  "if-shell -F '#{==:#{scroll_position},0}' 'send-keys -X cancel' 'send-keys -X -N 5 scroll-down'${ai_tmux_scroll_tail}" \
+  "" 2>/dev/null || true
+
+tmux_cmd bind-key -n "\e[5~" if-shell -F "#{pane_in_mode}" \
+  "send-keys -X -N 5 scroll-up${ai_tmux_scroll_tail}" \
+  "copy-mode ; send-keys -X -N 5 scroll-up${ai_tmux_scroll_tail}" 2>/dev/null || true
+
+tmux_cmd bind-key -n "\e[6~" if-shell -F "#{pane_in_mode}" \
+  "if-shell -F '#{==:#{scroll_position},0}' 'send-keys -X cancel' 'send-keys -X -N 5 scroll-down'${ai_tmux_scroll_tail}" \
+  "" 2>/dev/null || true
+
+exec tmux -L "$tmux_socket" attach -t "$session"

@@ -1,0 +1,36 @@
+#!/usr/bin/env bash
+# Health check for ttyd service
+# Returns 0 if ttyd is healthy, non-zero otherwise
+set -euo pipefail
+
+TTYD_HOST="${TTYD_HOST:-127.0.0.1}"
+TTYD_PORT="${TTYD_PORT:-7681}"
+TIMEOUT="${TIMEOUT:-5}"
+
+# Check if ttyd process is running
+if ! pgrep -x ttyd >/dev/null 2>&1; then
+  echo "UNHEALTHY: ttyd process not running" >&2
+  exit 1
+fi
+
+# Check if ttyd is listening on the expected port
+if ! ss -tlnp 2>/dev/null | grep -q ":${TTYD_PORT}"; then
+  echo "UNHEALTHY: ttyd not listening on port ${TTYD_PORT}" >&2
+  exit 1
+fi
+
+# Check if ttyd responds to HTTP (token endpoint)
+if command -v curl >/dev/null 2>&1; then
+  if ! curl -sf --max-time "$TIMEOUT" "http://${TTYD_HOST}:${TTYD_PORT}/token" >/dev/null 2>&1; then
+    echo "UNHEALTHY: ttyd not responding to HTTP on ${TTYD_HOST}:${TTYD_PORT}" >&2
+    exit 1
+  fi
+elif command -v wget >/dev/null 2>&1; then
+  if ! wget -q --timeout="$TIMEOUT" -O /dev/null "http://${TTYD_HOST}:${TTYD_PORT}/token" 2>&1; then
+    echo "UNHEALTHY: ttyd not responding to HTTP on ${TTYD_HOST}:${TTYD_PORT}" >&2
+    exit 1
+  fi
+fi
+
+echo "HEALTHY: ttyd running and responding on ${TTYD_HOST}:${TTYD_PORT}"
+exit 0

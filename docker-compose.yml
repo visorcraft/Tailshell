@@ -1,0 +1,128 @@
+services:
+  mysql:
+    image: mysql:8.0.44
+    container_name: tailshell-mysql
+    restart: unless-stopped
+    mem_limit: 1g
+    cpus: '1.0'
+    logging:
+      driver: json-file
+      options:
+        max-size: '10m'
+        max-file: '3'
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+      MYSQL_DATABASE: Tailshell
+      MYSQL_USER: Tailshell
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD}
+    command:
+      - '--max_connections=${MYSQL_MAX_CONNECTIONS:-200}'
+    volumes:
+      - mysql_data:/var/lib/mysql
+    ports:
+      - '127.0.0.1:3307:3306'
+    healthcheck:
+      test: ['CMD', 'mysqladmin', 'ping', '-h', 'localhost']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - tailshell-net
+
+  api:
+    build: ./api
+    container_name: tailshell-api
+    restart: unless-stopped
+    mem_limit: 512m
+    cpus: '1.0'
+    logging:
+      driver: json-file
+      options:
+        max-size: '10m'
+        max-file: '3'
+    environment:
+      DATABASE_HOST: mysql
+      DATABASE_PORT: 3306
+      DATABASE_NAME: Tailshell
+      DATABASE_USER: Tailshell
+      DATABASE_PASSWORD: ${MYSQL_PASSWORD}
+      JWT_SECRET: ${JWT_SECRET}
+      TAILSHELL_RELEASE: ${TAILSHELL_RELEASE:-}
+      CORS_ORIGIN: ${CORS_ORIGIN:-}
+      CORS_CREDENTIALS: ${CORS_CREDENTIALS:-}
+      TAILSHELL_ADMIN_USERNAME: ${TAILSHELL_ADMIN_USERNAME:-}
+      TAILSHELL_ADMIN_PASSWORD: ${TAILSHELL_ADMIN_PASSWORD:-}
+      TAILSHELL_ALLOW_WEAK_SECRETS: ${TAILSHELL_ALLOW_WEAK_SECRETS:-}
+      TAILSHELL_COOKIE_SECURE: ${TAILSHELL_COOKIE_SECURE:-}
+      TAILSHELL_MAINTENANCE_MODE: ${TAILSHELL_MAINTENANCE_MODE:-}
+      TAILSHELL_AUTH_CACHE_TTL_MS: ${TAILSHELL_AUTH_CACHE_TTL_MS:-}
+      TAILSHELL_AUTH_CACHE_MAX_ENTRIES: ${TAILSHELL_AUTH_CACHE_MAX_ENTRIES:-}
+      TAILSHELL_METADATA_CACHE_TTL_MS: ${TAILSHELL_METADATA_CACHE_TTL_MS:-}
+      TAILSHELL_METADATA_CACHE_MAX_ENTRIES: ${TAILSHELL_METADATA_CACHE_MAX_ENTRIES:-}
+      DATABASE_POOL_SIZE: ${DATABASE_POOL_SIZE:-}
+      DATABASE_POOL_QUEUE_LIMIT: ${DATABASE_POOL_QUEUE_LIMIT:-}
+      DATABASE_QUERY_TIMEOUT_MS: ${DATABASE_QUERY_TIMEOUT_MS:-}
+      DATABASE_READ_QUERY_RETRIES: ${DATABASE_READ_QUERY_RETRIES:-}
+      TAILSHELL_SLOW_QUERY_MS: ${TAILSHELL_SLOW_QUERY_MS:-}
+      TAILSHELL_SLOW_QUERY_MAX_ENTRIES: ${TAILSHELL_SLOW_QUERY_MAX_ENTRIES:-}
+      HTTP_KEEPALIVE_TIMEOUT_MS: ${HTTP_KEEPALIVE_TIMEOUT_MS:-}
+      HTTP_HEADERS_TIMEOUT_MS: ${HTTP_HEADERS_TIMEOUT_MS:-}
+      HTTP_REQUEST_TIMEOUT_MS: ${HTTP_REQUEST_TIMEOUT_MS:-}
+      NODE_ENV: production
+    ports:
+      - '127.0.0.1:3000:3000'
+    healthcheck:
+      test:
+        [
+          'CMD',
+          'node',
+          '-e',
+          "fetch('http://127.0.0.1:3000/api/ready',{signal:AbortSignal.timeout(2000)}).then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    depends_on:
+      mysql:
+        condition: service_healthy
+    networks:
+      - tailshell-net
+
+  nginx:
+    build:
+      context: .
+      dockerfile: nginx/Dockerfile
+      args:
+        UI_CACHEBUST: ${UI_CACHEBUST:-1}
+    container_name: tailshell-nginx
+    restart: unless-stopped
+    mem_limit: 256m
+    cpus: '0.5'
+    logging:
+      driver: json-file
+      options:
+        max-size: '10m'
+        max-file: '3'
+    ports:
+      - '127.0.0.1:8081:80'
+    depends_on:
+      api:
+        condition: service_healthy
+    networks:
+      - tailshell-net
+    extra_hosts:
+      - 'host.docker.internal:host-gateway'
+    healthcheck:
+      test: ['CMD', 'wget', '-q', '-O', '/dev/null', 'http://127.0.0.1/healthz']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+volumes:
+  mysql_data:
+
+networks:
+  tailshell-net:
+    driver: bridge

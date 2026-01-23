@@ -1,0 +1,124 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+cd "$(dirname "$0")/.."
+
+if docker ps --format '{{.Names}}' | grep -Eq '^tailshell-(api|mysql|nginx)$'; then
+  echo "Refusing to run: Tailshell containers are already running. Stop the stack first." >&2
+  exit 1
+fi
+
+export MYSQL_ROOT_PASSWORD="${MYSQL_ROOT_PASSWORD:-root_test_pw_123!}"
+export MYSQL_PASSWORD="${MYSQL_PASSWORD:-Tailshell_test_pw_123!}"
+export JWT_SECRET="${JWT_SECRET:-$(openssl rand -hex 32)}"
+export TAILSHELL_ADMIN_USERNAME="${TAILSHELL_ADMIN_USERNAME:-admin}"
+export TAILSHELL_ADMIN_PASSWORD="${TAILSHELL_ADMIN_PASSWORD:-AdminInit123!}"
+
+API_BASE="${API_BASE:-http://127.0.0.1:3000}"
+
+cleanup() {
+  docker compose down -v --remove-orphans >/dev/null 2>&1 || true
+}
+
+on_exit() {
+  code=$?
+  if [ "$code" -ne 0 ]; then
+    docker compose ps || true
+    docker compose logs --no-color api mysql || true
+  fi
+  cleanup
+  exit "$code"
+}
+trap on_exit EXIT
+
+docker compose up -d --build mysql api
+
+for _ in $(seq 1 60); do
+  status="$(docker inspect -f '{{.State.Health.Status}}' tailshell-api 2>/dev/null || true)"
+  if [ "$status" = "healthy" ]; then
+    break
+  fi
+  sleep 2
+done
+
+if [ "$(docker inspect -f '{{.State.Health.Status}}' tailshell-api 2>/dev/null || true)" != "healthy" ]; then
+  echo "API did not become healthy in time" >&2
+  exit 1
+fi
+
+curl -fsS "$API_BASE/api/ready" >/dev/null
+curl -fsS "$API_BASE/api/health" >/dev/null
+
+login_resp="$(curl -fsS -X POST "$API_BASE/api/auth/login" \
+  -H 'Content-Type: application/json' \
+  -d "{\"username\":\"$TAILSHELL_ADMIN_USERNAME\",\"password\":\"$TAILSHELL_ADMIN_PASSWORD\"}")"
+
+admin_token="$(echo "$login_resp" | node -e "const fs=require('fs');const data=JSON.parse(fs.readFileSync(0,'utf8'));if(!data.token) process.exit(1);process.stdout.write(data.token)")"
+
+status="$(curl -sS -o /dev/null -w '%{http_code}' "$API_BASE/api/prompts" -H "Authorization: Bearer $admin_token")"
+if [ "$status" != "403" ]; then
+  echo "Expected /api/prompts to require password change (403), got $status" >&2
+  exit 1
+fi
+
+curl -fsS -X POST "$API_BASE/api/auth/change-password" \
+  -H "Authorization: Bearer $admin_token" \
+  -H 'Content-Type: application/json' \
+  -d "{\"currentPassword\":\"$TAILSHELL_ADMIN_PASSWORD\",\"newPassword\":\"AdminNew123!\"}" >/dev/null
+
+create_prompt_resp="$(curl -fsS -X POST "$API_BASE/api/prompts" \
+  -H "Authorization: Bearer $admin_token" \
+  -H 'Content-Type: application/json' \
+  -d '{"name":"test","label":"Test prompt","command":"echo hello"}')"
+
+prompt_id="$(echo "$create_prompt_resp" | node -e "const fs=require('fs');const data=JSON.parse(fs.readFileSync(0,'utf8'));if(!data.id) process.exit(1);process.stdout.write(String(data.id))")"
+
+curl -fsS "$API_BASE/api/prompts/$prompt_id" -H "Authorization: Bearer $admin_token" >/dev/null
+
+curl -fsS -X PUT "$API_BASE/api/prompts/$prompt_id" \
+  -H "Authorization: Bearer $admin_token" \
+  -H 'Content-Type: application/json' \
+  -d '{"label":"Updated prompt","command":"echo updated"}' >/dev/null
+
+list_prompts_resp="$(curl -fsS "$API_BASE/api/prompts?limit=1000" -H "Authorization: Bearer $admin_token")"
+echo "$list_prompts_resp" | PROMPT_ID="$prompt_id" node -e "const fs=require('fs');const data=JSON.parse(fs.readFileSync(0,'utf8'));const id=Number(process.env.PROMPT_ID);if(!Array.isArray(data)||!data.some(p=>Number(p.id)===id)) process.exit(1);"
+
+curl -fsS -X DELETE "$API_BASE/api/prompts/$prompt_id" -H "Authorization: Bearer $admin_token" >/dev/null
+
+invite_resp="$(curl -fsS -X POST "$API_BASE/api/admin/invites" \
+  -H "Authorization: Bearer $admin_token" \
+  -H 'Content-Type: application/json' \
+  -d '{"role":"readonly","expires_in_hours":24}')"
+
+invite_token="$(echo "$invite_resp" | node -e "const fs=require('fs');const data=JSON.parse(fs.readFileSync(0,'utf8'));if(!data.token) process.exit(1);process.stdout.write(data.token)")"
+
+readonly_login_resp="$(curl -fsS -X POST "$API_BASE/api/invites/$invite_token/accept" \
+  -H 'Content-Type: application/json' \
+  -d '{"username":"readonly","password":"Readonly123!"}')"
+
+readonly_token="$(echo "$readonly_login_resp" | node -e "const fs=require('fs');const data=JSON.parse(fs.readFileSync(0,'utf8'));if(!data.token) process.exit(1);process.stdout.write(data.token)")"
+
+readonly_body="$(mktemp)"
+readonly_status="$(curl -sS -o "$readonly_body" -w '%{http_code}' -X POST "$API_BASE/api/prompts" \
+  -H "Authorization: Bearer $readonly_token" \
+  -H 'Content-Type: application/json' \
+  -d '{"name":"ro","label":"RO","command":"echo ro"}')"
+
+if [ "$readonly_status" != "403" ]; then
+  echo "Expected readonly prompt create to be forbidden (403), got $readonly_status" >&2
+  cat "$readonly_body" >&2 || true
+  exit 1
+fi
+
+cat "$readonly_body" | node -e "const fs=require('fs');const data=JSON.parse(fs.readFileSync(0,'utf8'));if(data.code!=='READONLY') process.exit(1);"
+
+readonly_admin_status="$(curl -sS -o /dev/null -w '%{http_code}' "$API_BASE/api/admin/system" -H "Authorization: Bearer $readonly_token")"
+if [ "$readonly_admin_status" != "403" ]; then
+  echo "Expected readonly admin access to be forbidden (403), got $readonly_admin_status" >&2
+  exit 1
+fi
+
+curl -fsS "$API_BASE/api/prompts?limit=1000" -H "Authorization: Bearer $readonly_token" >/dev/null
+
+rm -f "$readonly_body"
+echo "Integration test OK"

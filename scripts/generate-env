@@ -1,0 +1,125 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(dirname "$SCRIPT_DIR")"
+
+ENV_EXAMPLE="$REPO_ROOT/.env.example"
+ENV_FILE="$REPO_ROOT/.env"
+
+if [[ ! -f "$ENV_EXAMPLE" ]]; then
+  echo "ERROR: Missing .env.example at: $ENV_EXAMPLE" >&2
+  exit 1
+fi
+
+if [[ ! -f "$ENV_FILE" ]]; then
+  cp "$ENV_EXAMPLE" "$ENV_FILE"
+  echo "Created .env from .env.example"
+fi
+
+get_env_value() {
+  local key="$1"
+  grep -E "^${key}=" "$ENV_FILE" 2>/dev/null | head -n 1 | cut -d'=' -f2- || true
+}
+
+set_env_value() {
+  local key="$1"
+  local value="$2"
+  if grep -qE "^${key}=" "$ENV_FILE"; then
+    sed -i "s|^${key}=.*|${key}=${value}|" "$ENV_FILE"
+  else
+    printf "\n%s=%s\n" "$key" "$value" >> "$ENV_FILE"
+  fi
+}
+
+rand_b64() {
+  local bytes="$1"
+  openssl rand -base64 "$bytes" | tr -d '\n'
+}
+
+is_weak_value() {
+  local key="$1"
+  local value="$2"
+
+  if [[ -z "$value" ]]; then
+    return 0
+  fi
+
+  if [[ "$value" == generate_* ]]; then
+    return 0
+  fi
+
+  case "$value" in
+    changeme|password|secret|admin)
+      if [[ "$key" != "TAILSHELL_ADMIN_USERNAME" ]]; then
+        return 0
+      fi
+      ;;
+  esac
+
+  if [[ "$key" == "JWT_SECRET" && ${#value} -lt 32 ]]; then
+    return 0
+  fi
+
+  if [[ "$key" =~ ^(MYSQL_ROOT_PASSWORD|MYSQL_PASSWORD|TAILSHELL_ADMIN_PASSWORD)$ && ${#value} -lt 16 ]]; then
+    return 0
+  fi
+
+  return 1
+}
+
+MYSQL_ROOT_PASSWORD="$(get_env_value MYSQL_ROOT_PASSWORD)"
+if is_weak_value MYSQL_ROOT_PASSWORD "$MYSQL_ROOT_PASSWORD"; then
+  MYSQL_ROOT_PASSWORD="$(rand_b64 24)"
+  set_env_value MYSQL_ROOT_PASSWORD "$MYSQL_ROOT_PASSWORD"
+  echo "Set MYSQL_ROOT_PASSWORD"
+fi
+
+MYSQL_PASSWORD="$(get_env_value MYSQL_PASSWORD)"
+if is_weak_value MYSQL_PASSWORD "$MYSQL_PASSWORD"; then
+  MYSQL_PASSWORD="$(rand_b64 24)"
+  set_env_value MYSQL_PASSWORD "$MYSQL_PASSWORD"
+  echo "Set MYSQL_PASSWORD"
+fi
+
+JWT_SECRET="$(get_env_value JWT_SECRET)"
+if is_weak_value JWT_SECRET "$JWT_SECRET"; then
+  JWT_SECRET="$(rand_b64 32)"
+  set_env_value JWT_SECRET "$JWT_SECRET"
+  echo "Set JWT_SECRET"
+fi
+
+TAILSHELL_ADMIN_USERNAME="$(get_env_value TAILSHELL_ADMIN_USERNAME)"
+if [[ -z "$TAILSHELL_ADMIN_USERNAME" ]]; then
+  TAILSHELL_ADMIN_USERNAME="admin"
+  set_env_value TAILSHELL_ADMIN_USERNAME "$TAILSHELL_ADMIN_USERNAME"
+  echo "Set TAILSHELL_ADMIN_USERNAME"
+fi
+
+TAILSHELL_ADMIN_PASSWORD="$(get_env_value TAILSHELL_ADMIN_PASSWORD)"
+ADMIN_PASSWORD_GENERATED=false
+if is_weak_value TAILSHELL_ADMIN_PASSWORD "$TAILSHELL_ADMIN_PASSWORD"; then
+  TAILSHELL_ADMIN_PASSWORD="$(rand_b64 24)"
+  set_env_value TAILSHELL_ADMIN_PASSWORD "$TAILSHELL_ADMIN_PASSWORD"
+  ADMIN_PASSWORD_GENERATED=true
+  echo "Set TAILSHELL_ADMIN_PASSWORD"
+fi
+
+echo ""
+echo "=== .env ready ==="
+echo "Path: $ENV_FILE"
+if [[ "$ADMIN_PASSWORD_GENERATED" == "true" ]]; then
+  echo "Bootstrap admin: $TAILSHELL_ADMIN_USERNAME / $TAILSHELL_ADMIN_PASSWORD"
+else
+  echo "Bootstrap admin: $TAILSHELL_ADMIN_USERNAME / (existing TAILSHELL_ADMIN_PASSWORD)"
+fi
+echo "On a fresh DB, you will be redirected to: http://localhost:8081/change-password"
+
+if command -v docker >/dev/null 2>&1; then
+  if docker volume inspect Tailshell_mysql_data >/dev/null 2>&1; then
+    echo ""
+    echo "NOTE: Existing Docker volume 'Tailshell_mysql_data' detected."
+    echo "If this volume was created with different MYSQL_* values, MySQL won't automatically update passwords."
+    echo "Fast reset (DELETES DB): docker compose down -v && docker compose up -d --build"
+  fi
+fi

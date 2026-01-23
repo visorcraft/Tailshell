@@ -1,0 +1,39 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+PAYLOAD_PREFIX="__AI_PAYLOAD__"
+TITLE_TEMPLATE='#{?@ai_payload,#{@ai_payload},#S:#I.#P #W}'
+request_id="${1:-}"
+session="$(tmux display-message -p '#S' 2>/dev/null || true)"
+prefix="$(tmux show-options -gqv prefix 2>/dev/null || true)"
+if [ -z "$prefix" ]; then
+  prefix="C-b"
+fi
+
+# Format (base64-encoded, newline-delimited):
+# session::<session_name>
+# <window_id>::<window_index>::<window_name>::<is_active>
+windows="$(tmux list-windows -F '#{window_id}::#{window_index}::#{window_name}::#{?window_active,1,0}' 2>/dev/null || true)"
+
+payload_raw="$(printf 'session::%s\nprefix::%s\n%s' "$session" "$prefix" "$windows")"
+payload="$(printf '%s' "$payload_raw" | base64 -w 0)"
+payload_key="state"
+payload_value="${PAYLOAD_PREFIX}${payload_key}::${payload}"
+
+if [ -n "$request_id" ]; then
+  payload_value="${PAYLOAD_PREFIX}${payload_key}::${request_id}::${payload}"
+fi
+
+if [ -n "$session" ]; then
+  tmux set-option -t "$session" -q @ai_payload "$payload_value"
+else
+  tmux set-option -gq @ai_payload "$payload_value"
+fi
+
+# Force immediate title update by setting it directly to the payload
+tmux set-option -g set-titles on 2>/dev/null || true
+tmux set-option -g set-titles-string "$payload_value" 2>/dev/null || true
+tmux refresh-client 2>/dev/null || true
+
+# Restore the template for future updates
+tmux set-option -g set-titles-string "$TITLE_TEMPLATE" 2>/dev/null || true

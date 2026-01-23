@@ -1,0 +1,58 @@
+#!/usr/bin/env bash
+# Setup ttyd watchdog timer that monitors and restarts ttyd if unhealthy
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+echo "=== ttyd Watchdog Setup ==="
+
+# Install the health check script
+echo "Installing ttyd-health-check..."
+cp "$SCRIPT_DIR/ttyd-health-check" ~/.local/bin/ttyd-health-check
+chmod +x ~/.local/bin/ttyd-health-check
+
+# Create systemd user directories
+mkdir -p ~/.config/systemd/user
+
+# Create the watchdog service
+cat > ~/.config/systemd/user/ttyd-watchdog.service << 'EOF'
+[Unit]
+Description=ttyd Health Watchdog
+After=ai-ttyd-docker.service
+
+[Service]
+Type=oneshot
+ExecStart=/bin/bash -c 'if ! ~/.local/bin/ttyd-health-check; then echo "Restarting unhealthy ttyd..."; systemctl --user restart ai-ttyd-docker; fi'
+EOF
+
+# Create the watchdog timer (every 30 seconds)
+cat > ~/.config/systemd/user/ttyd-watchdog.timer << 'EOF'
+[Unit]
+Description=ttyd Health Watchdog Timer
+
+[Timer]
+OnBootSec=60
+OnUnitActiveSec=30
+
+[Install]
+WantedBy=timers.target
+EOF
+
+echo "Watchdog timer created at ~/.config/systemd/user/ttyd-watchdog.timer"
+
+# Reload and enable
+systemctl --user daemon-reload
+systemctl --user enable ttyd-watchdog.timer
+systemctl --user start ttyd-watchdog.timer
+
+echo ""
+echo "=== Watchdog Active ==="
+echo ""
+echo "The watchdog checks ttyd health every 30 seconds and restarts if unhealthy."
+echo ""
+echo "Commands:"
+echo "  Check status:     systemctl --user status ttyd-watchdog.timer"
+echo "  Run health check: ~/.local/bin/ttyd-health-check"
+echo "  View logs:        journalctl --user -u ttyd-watchdog -f"
+echo "  Disable:          systemctl --user disable ttyd-watchdog.timer"
+echo ""
