@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="ui/src/assets/images/1024x1024.png" alt="Tailshell mascot" width="200">
+  <img src="assets/Tailshell.png" alt="Tailshell mascot" width="200">
 </p>
 
 <h1 align="center">Tailshell</h1>
