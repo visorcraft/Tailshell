@@ -55,7 +55,7 @@ RUN make modules
 RUN mkdir -p /out && cp objs/ngx_http_brotli*_module.so /out/
 
 
-FROM nginx:1.29.4-alpine
+FROM nginx:1.31.0-alpine
 
 COPY nginx/nginx.conf /etc/nginx/nginx.conf
 
