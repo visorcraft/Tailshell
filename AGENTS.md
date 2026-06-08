@@ -1,5 +1,15 @@
 # Project overview
 
+## Agent Working Style
+
+- Be concise. No long explanations. Don't restate the plan unless it changed.
+- Never scan `node_modules`, `.venv`, `dist`, `build`, log/archive dirs, or generated files.
+- Cap output when searching or reading files. Default to limits, e.g.:
+  - `head -n 100` / `tail -n 100`
+  - `grep -n "pattern" file | head`
+  - `find . -type f | head -n 200`
+  - `python script.py --limit 50`
+
 AI Web Terminal running ttyd + tmux on the host, with a Docker stack for auth and storage.
 Nginx (Docker) fronts the UI and terminal, the Node/Express API (Docker) handles JWT auth and
 CRUD for prompts/users, and MySQL 8 stores data. The UI is a Preact/Vite build baked into the
@@ -46,6 +56,9 @@ Optional dev workflows:
 - `TODO.md` is a proposal/backlog; treat as non-authoritative.
 
 ## Git policy
+
+- **Attribution (IMPORTANT):** Commits are authored solely by the human committer. Never attribute code changes to any AI agent, assistant, or tool — including, but not limited to, **Cursor**, **cursoragent**, **Claude**, and **Codex**. Do **not** add `Co-Authored-By` trailers, "Generated with…" / "Assisted-by" lines, or any other AI attribution in commit messages, PR titles/descriptions, code, or comments.
+
 **NEVER run git commands for committing, pushing, or any repository operations on behalf of the user.** The user will handle all git operations themselves. This includes:
 - `git add`
 - `git commit`
