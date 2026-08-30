@@ -22,7 +22,7 @@ RUN npm run build && \
   \) -exec brotli -f -k -q 11 {} \;
 
 
-FROM alpine:3.23 AS brotli-build
+FROM alpine:3.24 AS brotli-build
 
 ARG NGINX_VERSION=1.29.4
 ARG NGX_BROTLI_REF=a71f9312c2deb28875acc7bacfdd5695a111aa53
