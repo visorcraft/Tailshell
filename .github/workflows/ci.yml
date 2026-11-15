@@ -15,7 +15,7 @@ jobs:
     name: Docker Compose config
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - name: Show Docker versions
         run: |
           docker version
@@ -27,7 +27,7 @@ jobs:
     name: API install + lint + audit
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - uses: actions/setup-node@v6
         with:
           node-version-file: .node-version
@@ -50,7 +50,7 @@ jobs:
     name: UI lint + typecheck + build
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - uses: actions/setup-node@v6
         with:
           node-version-file: .node-version
@@ -79,7 +79,7 @@ jobs:
     name: Compose integration test (API)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - uses: actions/setup-node@v6
         with:
           node-version-file: .node-version
