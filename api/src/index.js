@@ -9,7 +9,7 @@ import jwt from 'jsonwebtoken';
 import cors from 'cors';
 import helmet from 'helmet';
 import rateLimit from 'express-rate-limit';
-import yaml from 'js-yaml';
+import * as yaml from 'js-yaml';
 import knex from 'knex';
 import { generateSecret, generateURI, verifySync } from 'otplib';
 
@@ -4638,14 +4638,7 @@ app.post(
         const data = req.body?.data ?? null;
         if (data === null || data === undefined) return { status: 400, body: { error: 'data is required' } };
 
-        let parsed = null;
-        if (format === 'yaml') {
-          parsed = yaml.load(String(data));
-        } else if (typeof data === 'string') {
-          parsed = JSON.parse(data);
-        } else {
-          parsed = data;
-        }
+        const parsed = format === 'yaml' ? yaml.load(String(data)) : typeof data === 'string' ? JSON.parse(data) : data;
 
         const prompts = Array.isArray(parsed?.prompts) ? parsed.prompts : [];
         if (prompts.length === 0) return { status: 400, body: { error: 'No prompts found in import' } };
