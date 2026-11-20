@@ -1,4 +1,4 @@
-import type { JSX } from 'preact';
+import type { CSSProperties, TargetedMouseEvent } from 'preact';
 import { useState, useRef, useEffect, useLayoutEffect } from 'preact/hooks';
 import { createPortal } from 'preact/compat';
 import './Dropdown.css';
@@ -12,7 +12,7 @@ type DropdownProps = {
   value: string;
   options: DropdownOption[];
   onChange: (value: string) => void;
-  onClick?: (event: JSX.TargetedMouseEvent<HTMLElement>) => void;
+  onClick?: (event: TargetedMouseEvent<HTMLElement>) => void;
   class?: string;
   disabled?: boolean;
 };
@@ -113,7 +113,7 @@ export function Dropdown({ value, options, onChange, onClick, class: className, 
     return () => document.removeEventListener('keydown', handleKeyDown);
   }, [isOpen, value, options, onChange]);
 
-  const handleToggle = (event: JSX.TargetedMouseEvent<HTMLButtonElement>) => {
+  const handleToggle = (event: TargetedMouseEvent<HTMLButtonElement>) => {
     if (disabled) return;
     if (onClick) {
       onClick(event);
@@ -159,7 +159,7 @@ export function Dropdown({ value, options, onChange, onClick, class: className, 
         left: `${menuPosition.left}px`,
         width: `${menuPosition.width}px`,
         ...themeVars
-      } as unknown as JSX.CSSProperties}
+      } satisfies CSSProperties}
     >
       {options.map((option) => (
         <button

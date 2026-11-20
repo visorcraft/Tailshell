@@ -1,4 +1,4 @@
-import type { JSX } from 'preact';
+import type { TargetedKeyboardEvent } from 'preact';
 import { useEffect, useMemo, useRef, useState } from 'preact/hooks';
 import { Suspense, lazy } from 'preact/compat';
 import type { ITerminalOptions } from '@xterm/xterm';
@@ -143,19 +143,9 @@ function parseWindowsPayload(payload: string): WindowOption[] {
     const rawId = (parts[0] ?? '').trim();
     if (!rawId) continue;
 
-    let indexPart = '';
-    let nameParts: string[] = [];
-    let activePart = '0';
-
-    if (parts.length >= 4) {
-      indexPart = parts[1] ?? '';
-      nameParts = parts.slice(2, -1);
-      activePart = parts[parts.length - 1] ?? '0';
-    } else {
-      indexPart = parts[0] ?? '';
-      nameParts = parts.slice(1, -1);
-      activePart = parts[parts.length - 1] ?? '0';
-    }
+    const indexPart = (parts.length >= 4 ? parts[1] : parts[0]) ?? '';
+    const nameParts = parts.length >= 4 ? parts.slice(2, -1) : parts.slice(1, -1);
+    const activePart = parts[parts.length - 1] ?? '0';
 
     const parsedIndex = parseInt(indexPart, 10);
     const index = Number.isFinite(parsedIndex) ? parsedIndex : 0;
@@ -684,7 +674,7 @@ export function App() {
     focusTerminal();
   };
 
-  const handleComposerKey = (event: JSX.TargetedKeyboardEvent<HTMLTextAreaElement>) => {
+  const handleComposerKey = (event: TargetedKeyboardEvent<HTMLTextAreaElement>) => {
     if (event.key === 'Tab') {
       event.preventDefault();
       requestAutocomplete();
