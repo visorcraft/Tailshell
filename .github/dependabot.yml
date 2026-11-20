@@ -34,6 +34,13 @@ updates:
       ui-deps:
         patterns:
           - "*"
+    ignore:
+      # TypeScript 7 ships no JavaScript API, so typescript-eslint cannot load it.
+      - dependency-name: typescript
+        update-types:
+          - version-update:semver-major
+        versions:
+          - 7.x
 
   - package-ecosystem: docker
     directory: /

@@ -461,8 +461,8 @@ export class Xterm {
 
     const tmuxState = this.tmuxScrollState;
     let paneHeight = Math.max(0, terminal.rows);
-    let maxScroll = 0;
-    let scrollOffset = 0;
+    let maxScroll: number;
+    let scrollOffset: number;
 
     if (tmuxState) {
       paneHeight = Math.max(0, tmuxState.paneHeight || paneHeight);

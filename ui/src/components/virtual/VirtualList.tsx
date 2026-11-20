@@ -1,4 +1,4 @@
-import type { JSX } from 'preact';
+import type { CSSProperties, EventHandler, JSX, TargetedUIEvent } from 'preact';
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'preact/hooks';
 
 type Key = string | number;
@@ -9,7 +9,7 @@ type Props<T> = {
   itemGap?: number;
   overscan?: number;
   class?: string;
-  style?: JSX.CSSProperties;
+  style?: CSSProperties;
   getKey?: (item: T, index: number) => Key;
   renderItem: (item: T, index: number) => JSX.Element;
 };
@@ -68,7 +68,7 @@ export function VirtualList<T>({
 
   const visibleItems = useMemo(() => items.slice(startIndex, endIndex), [endIndex, items, startIndex]);
 
-  const onScroll: JSX.EventHandler<JSX.TargetedUIEvent<HTMLDivElement>> = (event) => {
+  const onScroll: EventHandler<TargetedUIEvent<HTMLDivElement>> = (event) => {
     pendingScrollTopRef.current = (event.currentTarget as HTMLDivElement).scrollTop;
     if (rafRef.current !== null) return;
     rafRef.current = window.requestAnimationFrame(() => {

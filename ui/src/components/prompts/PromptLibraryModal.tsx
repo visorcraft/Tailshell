@@ -1,4 +1,4 @@
-import type { JSX } from 'preact';
+import type { TargetedEvent } from 'preact';
 import { useEffect, useMemo, useRef, useState } from 'preact/hooks';
 
 import type {
@@ -542,7 +542,7 @@ export function PromptLibraryModal({
 
   const triggerImport = () => fileInputRef.current?.click();
 
-  const handleImportFile = async (event: JSX.TargetedEvent<HTMLInputElement>) => {
+  const handleImportFile = async (event: TargetedEvent<HTMLInputElement>) => {
     const file = (event.currentTarget.files ?? [])[0];
     if (!file) return;
     event.currentTarget.value = '';
