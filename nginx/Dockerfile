@@ -22,9 +22,13 @@ RUN npm run build && \
   \) -exec brotli -f -k -q 11 {} \;
 
 
-FROM alpine:3.24 AS brotli-build
+# Official image sets ENV NGINX_VERSION. The runtime stage and the brotli
+# module build both derive from this stage, so the modules are compiled
+# against the same nginx Dependabot updates via the tag below.
+FROM nginx:1.31.10-alpine AS nginx-base
 
-ARG NGINX_VERSION=1.29.4
+FROM nginx-base AS brotli-build
+
 ARG NGX_BROTLI_REF=a71f9312c2deb28875acc7bacfdd5695a111aa53
 
 RUN apk add --no-cache \
@@ -39,6 +43,8 @@ RUN apk add --no-cache \
 
 WORKDIR /tmp
 
+# Fail the build if a future base image drops ENV NGINX_VERSION.
+RUN test -n "$NGINX_VERSION"
 RUN curl -fsSL "https://nginx.org/download/nginx-${NGINX_VERSION}.tar.gz" | tar -xz
 RUN git clone https://github.com/google/ngx_brotli.git
 WORKDIR /tmp/ngx_brotli
@@ -55,7 +61,7 @@ RUN make modules
 RUN mkdir -p /out && cp objs/ngx_http_brotli*_module.so /out/
 
 
-FROM nginx:1.31.9-alpine
+FROM nginx-base
 
 COPY nginx/nginx.conf /etc/nginx/nginx.conf
 
